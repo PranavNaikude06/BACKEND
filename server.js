@@ -20,6 +20,12 @@ initializeFirebase();
 const app = express();
 const PORT = config.PORT;
 
+// Pre-middleware logging to see every request attempt
+app.use((req, res, next) => {
+  console.log(`[INCOMING] ${new Date().toISOString()} - ${req.method} ${req.path} from ${req.headers.origin || 'no-origin'}`);
+  next();
+});
+
 // ── CORS ─────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
   process.env.FRONTEND_URL,
