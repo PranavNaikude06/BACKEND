@@ -88,10 +88,15 @@ const sendSMS = async (to, body) => {
 const sendEmail = async (to, subject, text, html = null) => {
     // 0. Try Resend first (preferred provider)
     try {
+        console.log(`📡 [Email] Attempting to use Resend for: ${to}`);
         const result = await sendResendEmail(to, subject, html || `<p>${text}</p>`, text);
-        if (result) return result; // null means key not configured, fall through
+        if (result) {
+            console.log(`✅ [Email] Successfully sent via Resend to: ${to}`);
+            return result;
+        }
+        console.log(`ℹ️ [Email] Resend key not configured for ${to}, falling back...`);
     } catch (error) {
-        console.error('⚠️ Resend failed, falling back to next provider:', error.message);
+        console.error('⚠️ [Email] Resend failed, falling back to next provider:', error.message);
     }
 
     // 1. Try Firebase Email Extension if enabled
