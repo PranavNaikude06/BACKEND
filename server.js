@@ -20,30 +20,8 @@ initializeFirebase();
 const app = express();
 const PORT = config.PORT;
 
-// Pre-middleware logging to see every request attempt
-app.use((req, res, next) => {
-  console.log(`[INCOMING] ${new Date().toISOString()} - ${req.method} ${req.path} from ${req.headers.origin || 'no-origin'}`);
-  next();
-});
-
-// ── CORS ─────────────────────────────────────────────────────────────────────
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'capacitor://localhost',
-  'http://localhost', // Android WebView origin
-].filter(Boolean);
-
 app.use(cors({
   origin: (origin, callback) => {
-    // Detailed logging for debugging
-    if (origin) {
-      console.log(`[CORS] Request from: ${origin}`);
-    } else {
-      console.log(`[CORS] Request with no origin (allowing)`);
-    }
-
     // Allow requests with no origin (mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
 
