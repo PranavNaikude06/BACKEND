@@ -52,13 +52,15 @@ app.use(express.json({ limit: '10mb' })); // Limit request size for security
 // Apply general rate limiting to all routes
 app.use('/api/', generalLimiter);
 
-// Request logging middleware (only in development)
-if (process.env.NODE_ENV !== 'production') {
-  app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-    next();
+// Request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`);
   });
-}
+  next();
+});
 
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
