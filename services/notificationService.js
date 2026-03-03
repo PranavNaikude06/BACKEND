@@ -86,37 +86,13 @@ const sendSMS = async (to, body) => {
  * @returns {Promise<object>}
  */
 const sendEmail = async (to, subject, text, html = null) => {
-    // 0. Try Resend first (preferred provider)
-    try {
-        console.log(`📡 [Email] Attempting to use Resend for: ${to}`);
-        const result = await sendResendEmail(to, subject, html || `<p>${text}</p>`, text);
-        if (result) {
-            console.log(`✅ [Email] Successfully sent via Resend to: ${to}`);
-            return result;
-        }
-        console.log(`ℹ️ [Email] Resend key not configured for ${to}, falling back...`);
-    } catch (error) {
-        console.error('⚠️ [Email] Resend failed, falling back to next provider:', error.message);
-    }
-
-    // 1. Try Firebase Email Extension if enabled
-    if (USE_FIREBASE_EMAIL) {
-        try {
-            console.log('📧 Using Firebase Email Extension...');
-            const result = await sendFirebaseEmail(to, subject, html || text, text);
-            return result;
-        } catch (error) {
-            console.error('⚠️ Firebase Email failed, falling back to Gmail/Mailjet:', error.message);
-            // Continue to Gmail/Mailjet fallback
-        }
-    }
-
-    // 2. Try Gmail (Nodemailer) if Firebase is disabled or failed
+    // 1. Try Gmail (Nodemailer) first — FREE & sends to anyone!
     const gmailUser = process.env.GMAIL_USER;
     const gmailPass = process.env.GMAIL_PASS;
 
     if (gmailUser && gmailPass && gmailUser !== 'your_email@gmail.com' && gmailPass !== 'your_app_password_here') {
         try {
+            console.log(`📡 [Email] Attempting to use Gmail for: ${to}`);
             const transporter = nodemailer.createTransport({
                 service: 'gmail',
                 auth: {
@@ -132,19 +108,27 @@ const sendEmail = async (to, subject, text, html = null) => {
                 text
             };
 
-            // Add HTML if provided
-            if (html) {
-                mailOptions.html = html;
-            }
+            if (html) mailOptions.html = html;
 
             const result = await transporter.sendMail(mailOptions);
-
-            console.log(`✅ Email Sent via Gmail to ${to}`);
+            console.log(`✅ [Email] Successfully sent via Gmail to: ${to}`);
             return result;
         } catch (error) {
-            console.error('❌ Gmail Error:', error.message);
-            // If Gmail fails, we continue to try Mailjet
+            console.error('⚠️ [Email] Gmail failed, falling back to Resend:', error.message);
         }
+    }
+
+    // 2. Try Resend as fallback (Great for production with verified domains)
+    try {
+        console.log(`📡 [Email] Attempting to use Resend for: ${to}`);
+        const result = await sendResendEmail(to, subject, html || `<p>${text}</p>`, text);
+        if (result) {
+            console.log(`✅ [Email] Successfully sent via Resend to: ${to}`);
+            return result;
+        }
+        console.log(`ℹ️ [Email] Resend key not configured for ${to}, falling back...`);
+    } catch (error) {
+        console.error('⚠️ [Email] Resend failed, falling back to next provider:', error.message);
     }
 
     // 3. Try Mailjet if Firebase and Gmail were skipped or failed
