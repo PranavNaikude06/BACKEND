@@ -800,4 +800,28 @@ router.post('/reset-password', async (req, res) => {
     }
 });
 
+// Save FCM Token for Push Notifications
+router.post('/save-fcm-token', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: 'No token provided' });
+
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const { fcmToken } = req.body;
+
+        if (!fcmToken) return res.status(400).json({ error: 'FCM Token is required' });
+
+        await USERS.doc(decoded.userId).update({
+            fcmToken: fcmToken,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        res.json({ success: true, message: 'FCM Token saved successfully' });
+    } catch (error) {
+        console.error('Save FCM Token Error:', error);
+        res.status(500).json({ error: 'Failed to save FCM token' });
+    }
+});
+
 module.exports = router;

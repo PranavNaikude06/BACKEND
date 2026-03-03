@@ -3,6 +3,11 @@ const mailjet = require('node-mailjet');
 const nodemailer = require('nodemailer');
 const { sendFirebaseEmail } = require('./firebaseEmailService');
 const { sendResendEmail } = require('./resendEmailService');
+const { sendPushNotification } = require('./firebaseMessagingService');
+const admin = require('firebase-admin');
+
+// Collections
+const USERS = admin.firestore().collection('users');
 
 // Environment flag to choose email provider
 const USE_FIREBASE_EMAIL = process.env.USE_FIREBASE_EMAIL === 'true';
@@ -211,6 +216,26 @@ const sendBookingConfirmation = async (to, email, appointment) => {
             </div>
         `;
         await sendEmail(email, subject, body, html);
+    }
+
+    // 3. Send Push Notification if user has a token
+    try {
+        const userSnapshot = await USERS.where('phoneNumber', '==', appointment.phoneNumber).limit(1).get();
+        if (!userSnapshot.empty) {
+            const userData = userSnapshot.docs[0].data();
+            if (userData.fcmToken) {
+                console.log(`📡 [Push] Sending confirmation to user ${userData.name}...`);
+                await sendPushNotification(userData.fcmToken, {
+                    title: 'Booking Confirmed! ✅',
+                    body: `Your appointment at ${appointment.businessName} is set for ${appointment.time}.`
+                }, {
+                    appointmentId: appointment._id || '',
+                    type: 'booking_confirmation'
+                });
+            }
+        }
+    } catch (pushErr) {
+        console.error('⚠️ [Push] Failed to send booking notification:', pushErr.message);
     }
 };
 
