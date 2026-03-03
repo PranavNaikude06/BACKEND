@@ -11,41 +11,56 @@ const initializeFirebase = () => {
                 return false;
             }
 
-            // Diagnostic BEFORE processing (hex of first 10 chars)
-            const rawPrefix = privateKey.substring(0, 10);
+            // Diagnostic BEFORE processing
             console.log('Firebase Private Key raw diagnostic:');
             console.log('- Raw length:', privateKey.length);
+            const rawPrefix = privateKey.substring(0, 10);
             console.log('- Raw prefix (hex):', Buffer.from(rawPrefix).toString('hex'));
 
-            // Aggressive processing
-            // 1. Replace literal \n with real newlines first (handles both quoted and unquoted in different envs)
+            // 1. Convert literal \n to real newlines
             privateKey = privateKey.replace(/\\n/g, '\n');
 
-            // 2. Find the start of the PEM key (ignore anything before the header)
-            const header = '-----BEGIN PRIVATE KEY-----';
-            const footer = '-----END PRIVATE KEY-----';
+            // 2. ULTRA-FORGIVING PEM RECONSTRUCTION
+            const textStart = 'BEGIN PRIVATE KEY';
+            const textEnd = 'END PRIVATE KEY';
 
-            const startIdx = privateKey.indexOf(header);
-            if (startIdx === -1) {
-                console.error('❌ PEM Header not found in FIREBASE_PRIVATE_KEY');
-                console.log('- Raw start (sanitized):', privateKey.substring(0, 30).replace(/[^a-zA-Z -]/g, '?'));
+            const startPos = privateKey.indexOf(textStart);
+            const endPos = privateKey.indexOf(textEnd);
+
+            if (startPos === -1 || endPos === -1) {
+                console.error('❌ Could not find "BEGIN PRIVATE KEY" or "END PRIVATE KEY" markers.');
+                // Sanitize and log the start for debugging
+                console.log('- Raw start sanitized:', privateKey.substring(0, 40).replace(/[^a-zA-Z -]/g, '?'));
             } else {
-                // Slice from the header start
-                privateKey = privateKey.substring(startIdx);
-                // Find the footer but ONLY after the header
-                const finalFooterIdx = privateKey.indexOf(footer);
-                if (finalFooterIdx !== -1) {
-                    privateKey = privateKey.substring(0, finalFooterIdx + footer.length);
-                }
-            }
+                // Find where the base64 actually starts (usually after some dashes and a newline)
+                // We'll search for 'MII' which is the start of almost all Firebase RSA keys
+                let content = privateKey.substring(startPos + textStart.length);
+                const miiPos = content.indexOf('MII');
 
-            // Final trim for safety
-            privateKey = privateKey.trim();
+                if (miiPos !== -1) {
+                    content = content.substring(miiPos);
+                } else {
+                    // If no MII, just take everything after the first newline/space
+                    content = content.trim().replace(/^-+/, '').trim();
+                }
+
+                // Find where the content ends (before the END marker)
+                const endInContent = content.indexOf(textEnd);
+                if (endInContent !== -1) {
+                    content = content.substring(0, endInContent);
+                }
+
+                // Final cleanup of the base64 content
+                content = content.trim().replace(/-+$/, '').trim();
+
+                // RECONSTRUCT with perfect format
+                privateKey = `-----BEGIN PRIVATE KEY-----\n${content}\n-----END PRIVATE KEY-----`;
+            }
 
             console.log('Firebase Private Key final diagnostic:');
             console.log('- Final length:', privateKey.length);
-            console.log('- Starts with header:', privateKey.startsWith(header));
-            console.log('- Ends with footer:', privateKey.endsWith(footer));
+            console.log('- Header Check:', privateKey.startsWith('-----BEGIN PRIVATE KEY-----'));
+            console.log('- Footer Check:', privateKey.endsWith('-----END PRIVATE KEY-----'));
 
             admin.initializeApp({
                 credential: admin.credential.cert({
@@ -65,11 +80,20 @@ const initializeFirebase = () => {
 };
 
 // Initialize immediately
-const isInitialized = initializeFirebase();
+initializeFirebase();
 
-// Always get a db instance to prevent boot crashes, even if init failed.
-// Operations will fail late if init failed, but the server will stay alive to show logs.
-const db = getFirestore();
+// Always get a db instance to prevent boot crashes.
+// If initialization failed above, getFirestore() might throw, so we wrap it.
+let db;
+try {
+    db = getFirestore();
+} catch (e) {
+    console.error('❌ Firestore Initialization delayed/failed:', e.message);
+    db = null; // Routes will still error when used, but server will boot.
+}
+
+module.exports = initializeFirebase;
+module.exports.db = db;
 
 module.exports = initializeFirebase;
 module.exports.db = db;
