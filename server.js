@@ -37,8 +37,25 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
+    // Detailed logging for debugging
+    if (origin) {
+      console.log(`[CORS] Request from: ${origin}`);
+    } else {
+      console.log(`[CORS] Request with no origin (allowing)`);
+    }
+
     // Allow requests with no origin (mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
+
+    const allowedOrigins = [
+      process.env.FRONTEND_URL,
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'capacitor://localhost',
+      'http://localhost',  // Android WebView origin
+      'https://localhost', // Some Capacitor versions
+      'http://localhost:8080'
+    ].filter(Boolean);
 
     // Check if origin is allowed
     const isAllowed = allowedOrigins.some(ao => origin.startsWith(ao));
@@ -46,7 +63,7 @@ app.use(cors({
     if (isAllowed) {
       callback(null, true);
     } else {
-      console.warn(`⚠️ CORS blocked: Origin "${origin}" not in allowed list:`, allowedOrigins);
+      console.warn(`⚠️ [CORS] blocked: Origin "${origin}" not in allowed list:`, allowedOrigins);
       callback(new Error(`CORS: Origin ${origin} not allowed`));
     }
   },
@@ -85,6 +102,15 @@ app.use('/api/auth', require('./routes/auth')); // Auth routes
 app.use('/api/businesses', require('./routes/businesses')); // Business routes
 app.use('/api/appointments', require('./routes/appointments')); // Appointment routes
 app.use('/api/payments', require('./routes/payments')); // Payment routes
+
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    message: 'QueueGo API is reachable',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
 
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'Server is running', timestamp: new Date().toISOString() });
