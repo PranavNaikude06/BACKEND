@@ -360,7 +360,11 @@ router.post('/verify-signup-otp', async (req, res) => {
         if (!email || !otp) return res.status(400).json({ error: 'Email and OTP are required' });
 
         const normalizedEmail = email.trim().toLowerCase();
-        const isValid = await verifyOTP(normalizedEmail, otp);
+
+        // Master OTP bypass for free testing
+        const isMasterOTP = otp === '000000';
+        const isValid = isMasterOTP || await verifyOTP(normalizedEmail, otp);
+
         if (!isValid) return res.status(400).json({ error: 'Invalid or expired verification code' });
 
         // Mark user as verified
@@ -608,9 +612,13 @@ router.post('/verify-otp', async (req, res) => {
         }
 
         if (phoneNumber) {
-            // Phone-based OTP: look up in in-memory otpStore (set by /send-otp)
+            // Phone-based OTP
             const key = phoneNumber.replace(/\s+/g, '');
-            const valid = await checkAndDeleteOTP(key, otp);
+
+            // Master OTP bypass for free testing
+            const isMasterOTP = otp === '000000';
+            const valid = isMasterOTP || await checkAndDeleteOTP(key, otp);
+
             if (!valid) {
                 return res.status(400).json({ error: 'Invalid or expired OTP' });
             }
@@ -618,7 +626,10 @@ router.post('/verify-otp', async (req, res) => {
         }
 
         // Email-based OTP: use otpService (Firestore)
-        const isValid = await verifyOTP(email, otp);
+        // Master OTP bypass for free testing
+        const isMasterOTP = otp === '000000';
+        const isValid = isMasterOTP || await verifyOTP(email, otp);
+
         if (!isValid) return res.status(400).json({ error: 'Invalid or expired OTP' });
 
         res.json({ success: true, message: 'OTP verified' });
@@ -634,7 +645,10 @@ router.post('/login-otp', async (req, res) => {
         const { email, otp } = req.body;
         if (!email || !otp) return res.status(400).json({ error: 'Email and OTP are required' });
 
-        const isValid = await verifyOTP(email, otp);
+        // Master OTP bypass for free testing
+        const isMasterOTP = otp === '000000';
+        const isValid = isMasterOTP || await verifyOTP(email, otp);
+
         if (!isValid) return res.status(400).json({ error: 'Invalid or expired OTP' });
 
         const normalizedEmail = email.toLowerCase().trim();
