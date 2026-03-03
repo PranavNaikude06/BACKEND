@@ -19,9 +19,8 @@ router.get('/qr', async (req, res) => {
     const protocol = req.protocol;
     const host = req.get('host');
 
-    // Prioritize FRONTEND_URL from env for the join link
-    const baseUrl = (process.env.FRONTEND_URL || `${protocol}://${host}`).replace(/\/$/, "");
-    const joinUrl = `${baseUrl}/join/${businessId}`;
+    // Generate the join link using the backend production URL
+    const joinUrl = `https://backend-8gmt.onrender.com/join/${businessId}`;
 
     const qrDataUrl = await QRCode.toDataURL(joinUrl, {
       color: {
