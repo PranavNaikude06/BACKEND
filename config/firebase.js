@@ -7,27 +7,45 @@ const initializeFirebase = () => {
             let privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
             if (!privateKey) {
-                throw new Error('FIREBASE_PRIVATE_KEY is missing');
+                console.error('❌ FIREBASE_PRIVATE_KEY is missing');
+                return false;
             }
 
-            // Remove any surrounding quotes (sometimes happens in Render/env vars)
-            privateKey = privateKey.trim();
-            if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
-                privateKey = privateKey.substring(1, privateKey.length - 1);
-            } else if (privateKey.startsWith("'") && privateKey.endsWith("'")) {
-                privateKey = privateKey.substring(1, privateKey.length - 1);
-            }
+            // Diagnostic BEFORE processing (hex of first 10 chars)
+            const rawPrefix = privateKey.substring(0, 10);
+            console.log('Firebase Private Key raw diagnostic:');
+            console.log('- Raw length:', privateKey.length);
+            console.log('- Raw prefix (hex):', Buffer.from(rawPrefix).toString('hex'));
 
-            // Replace literal \n with actual newlines
+            // Aggressive processing
+            // 1. Replace literal \n with real newlines first (handles both quoted and unquoted in different envs)
             privateKey = privateKey.replace(/\\n/g, '\n');
 
-            // Final trim to handle any spaces after newline conversion
+            // 2. Find the start of the PEM key (ignore anything before the header)
+            const header = '-----BEGIN PRIVATE KEY-----';
+            const footer = '-----END PRIVATE KEY-----';
+
+            const startIdx = privateKey.indexOf(header);
+            if (startIdx === -1) {
+                console.error('❌ PEM Header not found in FIREBASE_PRIVATE_KEY');
+                console.log('- Raw start (sanitized):', privateKey.substring(0, 30).replace(/[^a-zA-Z -]/g, '?'));
+            } else {
+                // Slice from the header start
+                privateKey = privateKey.substring(startIdx);
+                // Find the footer but ONLY after the header
+                const finalFooterIdx = privateKey.indexOf(footer);
+                if (finalFooterIdx !== -1) {
+                    privateKey = privateKey.substring(0, finalFooterIdx + footer.length);
+                }
+            }
+
+            // Final trim for safety
             privateKey = privateKey.trim();
 
-            console.log('Firebase Private Key Diagnostic:');
-            console.log('- Length:', privateKey.length);
-            console.log('- Starts with Header:', privateKey.startsWith('-----BEGIN PRIVATE KEY-----'));
-            console.log('- Ends with Footer:', privateKey.includes('-----END PRIVATE KEY-----'));
+            console.log('Firebase Private Key final diagnostic:');
+            console.log('- Final length:', privateKey.length);
+            console.log('- Starts with header:', privateKey.startsWith(header));
+            console.log('- Ends with footer:', privateKey.endsWith(footer));
 
             admin.initializeApp({
                 credential: admin.credential.cert({
@@ -40,7 +58,6 @@ const initializeFirebase = () => {
             return true;
         } catch (error) {
             console.error('❌ Firebase Admin Initialization Error:', error.message);
-            // Don't exit here, but the app will likely fail on first DB call
             return false;
         }
     }
@@ -50,8 +67,9 @@ const initializeFirebase = () => {
 // Initialize immediately
 const isInitialized = initializeFirebase();
 
-// Only get db if initialized successfully
-const db = isInitialized ? getFirestore() : null;
+// Always get a db instance to prevent boot crashes, even if init failed.
+// Operations will fail late if init failed, but the server will stay alive to show logs.
+const db = getFirestore();
 
 module.exports = initializeFirebase;
 module.exports.db = db;
