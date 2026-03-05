@@ -37,10 +37,10 @@ app.use(cors({
       'http://localhost',  // Android WebView origin
       'https://localhost', // Some Capacitor versions
       'http://localhost:8080'
-    ].filter(Boolean);
+    ].filter(Boolean).map(url => url.replace(/\/$/, ''));
 
     // Check if origin is allowed
-    const isAllowed = allowedOrigins.some(ao => origin.startsWith(ao));
+    const isAllowed = allowedOrigins.some(ao => origin === ao || origin.startsWith(ao + '/'));
 
     if (isAllowed) {
       callback(null, true);
