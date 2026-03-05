@@ -18,6 +18,10 @@ if (missing.length > 0) {
 initializeFirebase();
 
 const app = express();
+
+// Trust proxy for rate limiting (Render/Vercel)
+app.set('trust proxy', 1);
+
 const PORT = config.PORT;
 
 app.use(cors({
