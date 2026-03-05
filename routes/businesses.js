@@ -181,4 +181,21 @@ router.delete('/:id', requireSuperAdmin, async (req, res) => {
     }
 });
 
+// RENEW/ACTIVATE a business subscription — SuperAdmin only
+router.post('/:id/renew', requireSuperAdmin, async (req, res) => {
+    const { id } = req.params;
+    try {
+        await BUSINESSES.doc(id).update({
+            'subscription.status': 'paid',
+            'subscription.renewedAt': admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        res.json({ success: true, message: 'Business subscription renewed successfully' });
+    } catch (error) {
+        console.error('Error renewing business:', error);
+        res.status(500).json({ error: 'Failed to renew business subscription' });
+    }
+});
+
 module.exports = router;
