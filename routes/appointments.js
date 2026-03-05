@@ -19,8 +19,9 @@ router.get('/qr', async (req, res) => {
     const protocol = req.protocol;
     const host = req.get('host');
 
-    // Generate the join link using the backend production URL
-    const joinUrl = `https://backend-8gmt.onrender.com/join/${businessId}`;
+    // Generate the join link using the frontend URL (for now, assuming standard setup or env var)
+    const frontendDomain = process.env.FRONTEND_URL || 'https://queuego.vercel.app'; // Or another default domain
+    const joinUrl = `${frontendDomain}/join/${businessId}`;
 
     const qrDataUrl = await QRCode.toDataURL(joinUrl, {
       color: {
