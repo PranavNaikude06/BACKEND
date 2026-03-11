@@ -111,6 +111,16 @@ router.post('/book', bookingLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Patient name and phone number are required' });
     }
 
+    // Check Business Approval
+    const bDoc = await BUSINESSES.doc(businessId).get();
+    if (!bDoc.exists) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    if (bDoc.data().isApproved === false) {
+      return res.status(403).json({ error: 'This business is still pending admin approval.' });
+    }
+
     // Input Validation
     if (patientName.length > 50) {
       return res.status(400).json({ error: 'Name is too long (max 50 chars)' });
@@ -175,9 +185,9 @@ router.post('/book', bookingLimiter, async (req, res) => {
     });
 
     // Send SMS notification asynchronously
-    const bDoc = await BUSINESSES.doc(businessId).get();
-    if (bDoc.exists) {
-      const business = bDoc.data();
+    const businessDoc = await BUSINESSES.doc(businessId).get();
+    if (businessDoc.exists) {
+      const business = businessDoc.data();
       sendBookingConfirmation(phoneNumber.trim(), email || '', {
         name: patientName.trim(),
         businessName: business.name,
@@ -206,6 +216,20 @@ router.post('/book', bookingLimiter, async (req, res) => {
 router.get('/queue', queueLimiter, async (req, res) => {
   try {
     const { businessId } = req.params;
+
+    // Check Business Approval for Live Queue View
+    const bDoc = await BUSINESSES.doc(businessId).get();
+    if (!bDoc.exists) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    if (bDoc.data().isApproved === false) {
+      return res.status(403).json({
+        error: 'This business is still pending admin approval.',
+        isPendingApproval: true
+      });
+    }
+
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
     const [servingSnap, waitingSnap, onHoldSnap] = await Promise.all([
