@@ -121,30 +121,38 @@ router.post('/book', bookingLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Phone number must be exactly 10 digits' });
     }
 
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
     // TRANSACTION: Atomic Queue Numbering
     const result = await db.runTransaction(async (t) => {
-      // 1. Get highest queue number
-      const qSnapshot = await t.get(
-        APPOINTMENTS
-          .where('businessId', '==', businessId)
-          .orderBy('queueNumber', 'desc')
-          .limit(1)
-      );
+      // 1. Get or initialize daily counter
+      const counterRef = db.collection('businesses').doc(businessId).collection('meta').doc('queueCounter');
+      const counterDoc = await t.get(counterRef);
 
       let nextNumber = 1;
-      if (!qSnapshot.empty) {
-        nextNumber = qSnapshot.docs[0].data().queueNumber + 1;
+      if (counterDoc.exists) {
+        const data = counterDoc.data();
+        if (data.date === todayStr) {
+          nextNumber = data.lastNumber + 1;
+        }
       }
 
-      // 2. Check if anyone is currently serving
+      // Update the daily counter
+      t.set(counterRef, {
+        date: todayStr,
+        lastNumber: nextNumber
+      }, { merge: true });
+
+      // 2. Check if anyone is currently serving today
       const sSnapshot = await t.get(
         APPOINTMENTS
           .where('businessId', '==', businessId)
+          .where('dateString', '==', todayStr)
           .where('status', '==', 'serving')
           .limit(1)
       );
 
-      // 3. Mark as serving if queue is empty
+      // 3. Mark as serving if queue is empty for today
       const status = sSnapshot.empty ? 'serving' : 'waiting';
 
       // 4. Create record
@@ -156,6 +164,7 @@ router.post('/book', bookingLimiter, async (req, res) => {
         phoneNumber: phoneNumber.trim(),
         email: email || '', // Store email for notifications
         queueNumber: nextNumber,
+        dateString: todayStr,
         status: status,
         createdAt: admin.firestore.FieldValue.serverTimestamp()
       };
@@ -197,11 +206,12 @@ router.post('/book', bookingLimiter, async (req, res) => {
 router.get('/queue', queueLimiter, async (req, res) => {
   try {
     const { businessId } = req.params;
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
     const [servingSnap, waitingSnap, onHoldSnap] = await Promise.all([
-      APPOINTMENTS.where('businessId', '==', businessId).where('status', '==', 'serving').limit(1).get(),
-      APPOINTMENTS.where('businessId', '==', businessId).where('status', '==', 'waiting').get(),
-      APPOINTMENTS.where('businessId', '==', businessId).where('status', '==', 'on-hold').get()
+      APPOINTMENTS.where('businessId', '==', businessId).where('dateString', '==', todayStr).where('status', '==', 'serving').limit(1).get(),
+      APPOINTMENTS.where('businessId', '==', businessId).where('dateString', '==', todayStr).where('status', '==', 'waiting').get(),
+      APPOINTMENTS.where('businessId', '==', businessId).where('dateString', '==', todayStr).where('status', '==', 'on-hold').get()
     ]);
 
     const serving = servingSnap.empty ? null : { _id: servingSnap.docs[0].id, ...servingSnap.docs[0].data() };
@@ -231,14 +241,15 @@ router.post('/next', async (req, res) => {
   try {
     const { businessId } = req.params;
     const now = admin.firestore.FieldValue.serverTimestamp();
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
     const result = await db.runTransaction(async (t) => {
-      // 1. Get current serving and all waiting — ALL READS FIRST
+      // 1. Get current serving and all waiting for TODAY — ALL READS FIRST
       const servingSnap = await t.get(
-        APPOINTMENTS.where('businessId', '==', businessId).where('status', '==', 'serving')
+        APPOINTMENTS.where('businessId', '==', businessId).where('status', '==', 'serving') // Keep all, to mark old ones completed too
       );
       const waitingSnap = await t.get(
-        APPOINTMENTS.where('businessId', '==', businessId).where('status', '==', 'waiting')
+        APPOINTMENTS.where('businessId', '==', businessId).where('dateString', '==', todayStr).where('status', '==', 'waiting')
       );
 
       // 2. Mark current serving as completed — WRITES AFTER READS
@@ -263,6 +274,7 @@ router.post('/next', async (req, res) => {
     try {
       const remainingWaiting = await APPOINTMENTS
         .where('businessId', '==', businessId)
+        .where('dateString', '==', todayStr)
         .where('status', '==', 'waiting')
         .get();
 
@@ -315,9 +327,11 @@ router.get('/status/:queueNumber', async (req, res) => {
   try {
     const { businessId } = req.params;
     const queueNumber = parseInt(req.params.queueNumber);
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
     const snapshot = await APPOINTMENTS
       .where('businessId', '==', businessId)
+      .where('dateString', '==', todayStr)
       .where('queueNumber', '==', queueNumber)
       .limit(1)
       .get();
