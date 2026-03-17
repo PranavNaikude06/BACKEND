@@ -1,17 +1,14 @@
 const twilio = require('twilio');
 const mailjet = require('node-mailjet');
 const nodemailer = require('nodemailer');
-const { sendFirebaseEmail } = require('./firebaseEmailService');
 const { sendResendEmail } = require('./resendEmailService');
 const { sendPushNotification } = require('./firebaseMessagingService');
 const admin = require('firebase-admin');
-const SibApiV3Sdk = require('@getbrevo/brevo');
+const Brevo = require('@getbrevo/brevo');
 
 // Collections
 const USERS = admin.firestore().collection('users');
 
-// Environment flag to choose email provider
-const USE_FIREBASE_EMAIL = process.env.USE_FIREBASE_EMAIL === 'true';
 
 
 // Lazy initialization of the Twilio client
@@ -99,11 +96,11 @@ const sendEmail = async (to, subject, text, html = null) => {
     if (brevoApiKey) {
         try {
             console.log(`📡 [Email] Attempting Brevo for: ${to}`);
-            const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
-            const apiKey = apiInstance.authentications['apiKey'];
-            apiKey.apiKey = brevoApiKey;
+            const defaultClient = Brevo.ApiClient.instance;
+            defaultClient.authentications['api-key'].apiKey = brevoApiKey;
 
-            const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+            const apiInstance = new Brevo.TransactionalEmailsApi();
+            const sendSmtpEmail = new Brevo.SendSmtpEmail();
             sendSmtpEmail.sender = { name: 'QueueGo', email: brevoSender };
             sendSmtpEmail.to = [{ email: to }];
             sendSmtpEmail.subject = subject;
