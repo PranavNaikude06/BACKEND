@@ -29,26 +29,29 @@ app.use(cors({
     // Allow requests with no origin (mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
 
-    const allowedOrigins = [
-      process.env.FRONTEND_URL,
-      'http://localhost:5173',
-      'http://localhost:5174',
-      'http://localhost:3000',
-      'capacitor://localhost',
-      'http://localhost',  // Android WebView origin
-      'https://localhost', // Some Capacitor versions
-      'http://localhost:8080'
-    ].filter(Boolean).map(url => url.replace(/\/$/, ''));
+      const allowedOrigins = [
+        process.env.FRONTEND_URL,
+        'http://localhost:5173',
+        'http://localhost:5174',
+        'http://localhost:3000',
+        'capacitor://localhost',
+        'http://localhost',
+        'https://localhost',
+        'http://localhost:8080'
+      ].filter(Boolean).map(url => url.replace(/\/$/, ''));
 
-    // Check if origin is allowed
-    const isAllowed = allowedOrigins.some(ao => origin === ao || origin.startsWith(ao + '/'));
+      // Check if origin is allowed explicitly or matches Vercel project/preview patterns
+      const isVercelOrigin = origin.endsWith('.vercel.app') && 
+                            (origin.includes('queuego-frontend') || origin.includes('clinic-queue'));
+      
+      const isAllowed = allowedOrigins.some(ao => origin === ao || origin.startsWith(ao + '/')) || isVercelOrigin;
 
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      console.warn(`⚠️ [CORS] blocked: Origin "${origin}" not in allowed list:`, allowedOrigins);
-      callback(new Error(`CORS: Origin ${origin} not allowed`));
-    }
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        console.warn(`⚠️ [CORS] blocked: Origin "${origin}" not in allowed list:`, allowedOrigins);
+        callback(new Error(`CORS: Origin ${origin} not allowed`));
+      }
   },
   credentials: true,
 }));
