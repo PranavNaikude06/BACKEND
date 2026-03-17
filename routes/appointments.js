@@ -133,11 +133,23 @@ router.post('/book', bookingLimiter, async (req, res) => {
 
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
-    // TRANSACTION: Atomic Queue Numbering
+    // TRANSACTION: Atomic Queue Numbering — ALL READS before ALL WRITES
     const result = await db.runTransaction(async (t) => {
-      // 1. Get or initialize daily counter
       const counterRef = db.collection('businesses').doc(businessId).collection('meta').doc('queueCounter');
+
+      // READ 1: Get or initialize daily counter
       const counterDoc = await t.get(counterRef);
+
+      // READ 2: Check if anyone is currently serving today
+      const sSnapshot = await t.get(
+        APPOINTMENTS
+          .where('businessId', '==', businessId)
+          .where('dateString', '==', todayStr)
+          .where('status', '==', 'serving')
+          .limit(1)
+      );
+
+      // --- All reads done, now compute and write ---
 
       let nextNumber = 1;
       if (counterDoc.exists) {
@@ -147,32 +159,22 @@ router.post('/book', bookingLimiter, async (req, res) => {
         }
       }
 
-      // Update the daily counter
+      const status = sSnapshot.empty ? 'serving' : 'waiting';
+
+      // WRITE 1: Update the daily counter
       t.set(counterRef, {
         date: todayStr,
         lastNumber: nextNumber
       }, { merge: true });
 
-      // 2. Check if anyone is currently serving today
-      const sSnapshot = await t.get(
-        APPOINTMENTS
-          .where('businessId', '==', businessId)
-          .where('dateString', '==', todayStr)
-          .where('status', '==', 'serving')
-          .limit(1)
-      );
-
-      // 3. Mark as serving if queue is empty for today
-      const status = sSnapshot.empty ? 'serving' : 'waiting';
-
-      // 4. Create record
+      // WRITE 2: Create the appointment record
       const newApptRef = APPOINTMENTS.doc();
       const apptData = {
         businessId,
         serviceId: serviceId || 'default',
         patientName: patientName.trim(),
         phoneNumber: phoneNumber.trim(),
-        email: email || '', // Store email for notifications
+        email: email || '',
         queueNumber: nextNumber,
         dateString: todayStr,
         status: status,
