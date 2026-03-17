@@ -5,6 +5,7 @@ const { sendFirebaseEmail } = require('./firebaseEmailService');
 const { sendResendEmail } = require('./resendEmailService');
 const { sendPushNotification } = require('./firebaseMessagingService');
 const admin = require('firebase-admin');
+const SibApiV3Sdk = require('@getbrevo/brevo');
 
 // Collections
 const USERS = admin.firestore().collection('users');
@@ -91,7 +92,33 @@ const sendSMS = async (to, body) => {
  * @returns {Promise<object>}
  */
 const sendEmail = async (to, subject, text, html = null) => {
-    // 1. Try Gmail (Nodemailer) first — FREE & sends to anyone!
+    // 0. Try Brevo first — fast, reliable, 300 free emails/day
+    const brevoApiKey = process.env.BREVO_API_KEY;
+    const brevoSender = process.env.BREVO_SENDER_EMAIL || 'noreply@queuego.in';
+
+    if (brevoApiKey) {
+        try {
+            console.log(`📡 [Email] Attempting Brevo for: ${to}`);
+            const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
+            const apiKey = apiInstance.authentications['apiKey'];
+            apiKey.apiKey = brevoApiKey;
+
+            const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+            sendSmtpEmail.sender = { name: 'QueueGo', email: brevoSender };
+            sendSmtpEmail.to = [{ email: to }];
+            sendSmtpEmail.subject = subject;
+            sendSmtpEmail.textContent = text;
+            if (html) sendSmtpEmail.htmlContent = html;
+
+            const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
+            console.log(`✅ [Email] Successfully sent via Brevo to: ${to}`);
+            return result;
+        } catch (error) {
+            console.error('⚠️ [Email] Brevo failed, falling back to Gmail:', error.message);
+        }
+    }
+
+    // 1. Try Gmail (Nodemailer) next
     const gmailUser = process.env.GMAIL_USER;
     const gmailPass = process.env.GMAIL_PASS;
 
