@@ -81,6 +81,7 @@ router.post('/business-signup', async (req, res) => {
 
 // Signup route for new business (Firebase auth - no password needed)
 router.post('/business-signup-firebase', async (req, res) => {
+    console.log('🚀 Starting business-signup-firebase for:', req.body.email || 'unknown');
     try {
         const { businessName, adminName, idToken } = req.body;
 
@@ -89,91 +90,127 @@ router.post('/business-signup-firebase', async (req, res) => {
         }
 
         // Verify Firebase Token
+        console.log('🔐 Verifying Firebase ID Token...');
         let decodedToken;
         try {
             decodedToken = await admin.auth().verifyIdToken(idToken);
+            console.log('✅ Token verified for UID:', decodedToken.uid);
         } catch (e) {
+            console.error('❌ Token verification failed:', e.message);
             return res.status(401).json({ error: 'Invalid authentication token' });
         }
 
         const { uid, email } = decodedToken;
 
         // Check if user already has a business
+        console.log('🔍 Checking for existing admin user:', email);
         const existingUser = await USERS.where('email', '==', email.toLowerCase()).where('role', '==', 'admin').limit(1).get();
-        if (!existingUser.empty) {
-            const userData = existingUser.docs[0].data();
-            return res.status(400).json({
-                error: 'You already have a business registered. Please login to your existing business.',
-                businessId: userData.businessId
-            });
-        }
-
-        // 1. Create Business
-        const slug = businessName.toLowerCase().replace(/ /g, '-').replace(/[^\w-]/g, '');
-
-        // Simple duplicate slug check
-        const slugCheck = await BUSINESSES.where('slug', '==', slug).get();
-        if (!slugCheck.empty) {
-            return res.status(400).json({
-                error: 'Business name already exists. Please try a different name.'
-            });
-        }
-
-        const businessRef = await BUSINESSES.add({
-            name: businessName,
-            slug,
-            email: email.toLowerCase(),
-            address: req.body.address || '',
-            location: req.body.location || null, // { lat, lng }
-            isApproved: false, // Pending admin approval
-            subscription: { status: 'pending' }, // Trial starts upon approval
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-        const businessId = businessRef.id;
-
-        // 2. Create or Update Admin User
-        const userSnapshot = await USERS.where('email', '==', email.toLowerCase()).limit(1).get();
+        
+        let businessId;
         let userRef;
 
-        if (userSnapshot.empty) {
-            // Create new user
-            userRef = await USERS.add({
-                name: adminName,
+        if (!existingUser.empty) {
+            const userData = existingUser.docs[0].data();
+            console.log('ℹ️ User already has "admin" role and businessId:', userData.businessId);
+            
+            // IDEMPOTENCY: If they already have a business and are retrying, 
+            // check if the business actually exists and continue.
+            const busCheck = await BUSINESSES.doc(userData.businessId).get();
+            if (busCheck.exists) {
+                console.log('♻️ Business found. Resuming signup/issuing tokens.');
+                businessId = userData.businessId;
+                userRef = existingUser.docs[0].ref;
+            } else {
+                console.warn('⚠️ User has businessId but business doc is missing. Cleaning up role.');
+                // Handle the edge case where the user is an admin but the business was deleted/never created
+                await existingUser.docs[0].ref.update({ role: 'customer', businessId: null });
+                return res.status(400).json({ error: 'Inconsistent data found. Please try signing up again.' });
+            }
+        } else {
+            // New Signup Flow
+            console.log('🆕 New business signup starting...');
+            
+            // 1. Create Business
+            const slug = businessName.toLowerCase().replace(/ /g, '-').replace(/[^\w-]/g, '');
+
+            // Simple duplicate slug check
+            console.log('🔗 Checking slug availability:', slug);
+            const slugCheck = await BUSINESSES.where('slug', '==', slug).get();
+            if (!slugCheck.empty) {
+                console.warn('❌ Slug already exists:', slug);
+                return res.status(400).json({
+                    error: 'Business name already exists. Please try a different name.'
+                });
+            }
+
+            console.log('🏗️ Creating business document...');
+            const newBusinessRef = await BUSINESSES.add({
+                name: businessName,
+                slug,
                 email: email.toLowerCase(),
-                role: 'admin',
-                businessId,
-                firebaseUid: uid,
+                address: req.body.address || '',
+                location: req.body.location || null, // { lat, lng }
+                isApproved: false, // Pending admin approval
+                subscription: { status: 'pending' }, // Trial starts upon approval
                 createdAt: admin.firestore.FieldValue.serverTimestamp()
             });
-        } else {
-            // Update existing user to admin
-            userRef = userSnapshot.docs[0].ref;
-            await userRef.update({
-                name: adminName,
-                role: 'admin',
-                businessId,
-                firebaseUid: uid,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-            });
+            businessId = newBusinessRef.id;
+            console.log('✅ Business created with ID:', businessId);
+
+            // 2. Create or Update Admin User
+            console.log('👤 Updating user to admin role...');
+            const userSnapshot = await USERS.where('email', '==', email.toLowerCase()).limit(1).get();
+
+            if (userSnapshot.empty) {
+                console.log('➕ Creating new user doc...');
+                const newUserRef = await USERS.add({
+                    name: adminName,
+                    email: email.toLowerCase(),
+                    role: 'admin',
+                    businessId,
+                    firebaseUid: uid,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                userRef = newUserRef;
+            } else {
+                console.log('📝 Updating existing user doc...');
+                userRef = userSnapshot.docs[0].ref;
+                await userRef.update({
+                    name: adminName,
+                    role: 'admin',
+                    businessId,
+                    firebaseUid: uid,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+            console.log('✅ User updated successfully.');
         }
 
         // Set Firebase custom claim for this admin
-        await admin.auth().setCustomUserClaims(uid, { businessId, role: 'admin' });
+        console.log('🏷️ Setting custom Firebase claims...');
+        try {
+            await admin.auth().setCustomUserClaims(uid, { businessId, role: 'admin' });
+            console.log('✅ Custom claims set.');
+        } catch (claimErr) {
+            console.error('❌ Failed to set custom claims:', claimErr.message);
+            // We continue as the firestore role and businessId are already set
+        }
 
+        console.log('🎫 Signing JWT...');
         const token = jwt.sign(
-            { userId: userRef.id, businessId, role: 'admin' },
+            { userId: userRef.id || userRef.id, businessId, role: 'admin' },
             process.env.JWT_SECRET,
             { expiresIn: '1d' }
         );
 
         // Log to Google Sheets
+        console.log('📊 Logging to Google Sheets (non-blocking)...');
         logBusiness(
             { name: businessName, address: req.body.address || '' },
             { name: adminName, email: email, phoneNumber: '' }
         );
 
-
-
+        console.log('✨ Signup process complete for:', email);
         res.status(201).json({
             success: true,
             token,
@@ -185,7 +222,7 @@ router.post('/business-signup-firebase', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Firebase business signup error:', error);
+        console.error('❌ Firebase business signup error:', error);
         res.status(500).json({ error: `Failed to create business: ${error.message}` });
     }
 });

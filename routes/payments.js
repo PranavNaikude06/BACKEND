@@ -22,7 +22,7 @@ router.post('/create-order', async (req, res) => {
         const { amount, currency = 'INR', businessId } = req.body;
 
         const order = await razorpay.orders.create({
-            amount: (amount || 199) * 100, // Amount in paise
+            amount: (amount || 600) * 100, // Amount in paise
             currency,
             receipt: `receipt_${Date.now()}`,
             notes: {
@@ -102,7 +102,7 @@ router.post('/verify-payment', async (req, res) => {
             businessId: businessId || '',
             paymentId: razorpay_payment_id,
             orderId: razorpay_order_id,
-            amount: 199,
+            amount: 600,
             status: 'success',
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
